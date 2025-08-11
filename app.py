@@ -256,11 +256,11 @@ if "df_scores" in st.session_state and not st.session_state.df_scores.empty:
     df_scores = st.session_state.df_scores
     recommendation = st.session_state.recommendation
 
-    st.subheader("Scores")
-    st.dataframe(
-        df_scores.style.format({"Share": "{:.0%}", "Weighted Score": "{:.0f}"}),
-        use_container_width=True
-    )
+    # st.subheader("Scores")
+    # st.dataframe(
+    #     df_scores.style.format({"Share": "{:.0%}", "Weighted Score": "{:.0f}"}),
+    #     use_container_width=True
+    # )
 
     # ---- Donut: ABSOLUTE WEIGHT (Plotly) ----
     st.markdown("### Weights Diagram")
