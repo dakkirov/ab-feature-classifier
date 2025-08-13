@@ -537,7 +537,7 @@ def render_product_1():
             st.session_state.p1_verified_type = selected
             st.session_state.p1_selected_status = "LEAD"
             st.session_state.p1_profit_uplift = 0
-            st.session_state.p1_dev_hours = 0
+            st.session_state.p1_dev_hours = 1
             st.session_state.p1_index_value = 0
 
         if "p1_verified_type" in st.session_state:
