@@ -1,8 +1,3 @@
-# app.py
-# ============================================
-# A/B Tools Hub (2 products) — Sidebar menu + toggleable settings
-# ============================================
-
 import re
 from typing import Dict, List, Tuple
 import math
@@ -16,7 +11,7 @@ from unidecode import unidecode
 st.set_page_config(page_title="A/B HawkCast", page_icon="🧪", layout="centered")
 
 # -----------------------------
-# Small style touch (optional)
+# Small style touch
 # -----------------------------
 st.markdown(
     """
@@ -168,8 +163,8 @@ def normalize_text(text: str) -> str:
     for pat, repl in CANON_REPLACEMENTS.items():
         t = re.sub(pat, repl, t, flags=re.IGNORECASE)
     t = re.sub(r"[^\S\r\n]+", " ", t)
-    t = re.sub(r"\s*([,.;:!?()\\-])\\s*", r" \\1 ", t)
-    t = re.sub(r"\\s+", " ", t).strip()
+    t = re.sub(r"\s*([,.;:!?()\-])\s*", r" \1 ", t)
+    t = re.sub(r"\s+", " ", t).strip()
     return t
 
 def excel_like_char_diff(text: str, needle: str) -> int:
@@ -183,7 +178,7 @@ def count_word_boundary_mode(text: str, needles: List[str]) -> int:
     for n in needles:
         if not n:
             continue
-        pat = re.compile(rf"\\b{re.escape(n)}\\b", flags=re.IGNORECASE)
+        pat = re.compile(rf"\b{re.escape(n)}\b", flags=re.IGNORECASE)
         hits = pat.findall(text)
         total += len(hits) * len(n)
     return total
@@ -244,7 +239,6 @@ ANNUAL_COEF = 8.1841     # L2
 Z_ALPHA_2 = 1.645        # M2
 Z_BETA   = 0.84          # N2
 
-# (Code, Platform, Status, Entry, Target, Link, LTV'12, Annual coef)
 P2_ROWS = [
     ("WEBLEADPaymentSubscription purchase", "WEB", "LEAD", "Payment", "Subscription purchase", "https://mixpanel.com/s/1MDTXy", 46.48, 8.1841),
     ("WEBLEADScent profileSubscription purchase", "WEB", "LEAD", "Scent profile", "Subscription purchase", "https://mixpanel.com/s/35LqBb", 46.48, 8.1841),
@@ -327,8 +321,16 @@ P2_ROWS = [
 P2 = pd.DataFrame(P2_ROWS, columns=["Code","Platform","Status","Entry","Target","Link","LTV12_row","AnnualCoef_row"])
 
 # -----------------------------
-# Product 2 helpers
+# Product 2 helpers (placeholders + calc)
 # -----------------------------
+PLACEHOLDER = "— Select —"
+
+def _opt_with_placeholder(options: List[str]) -> List[str]:
+    return [PLACEHOLDER] + options
+
+def _read_or_none(val):
+    return None if (val is None or val == PLACEHOLDER) else val
+
 def _sample_size(J, u, M=Z_ALPHA_2, N=Z_BETA):
     """Excel: 2*((N+M)^2*(J*(1-J)+(J*(1+u)*(1-J*(1+u)))))/(J - J*(1+u))^2"""
     p1 = J
@@ -359,34 +361,32 @@ def _find_uplift_for_30_days(monthly_traffic, share, J):
             hi = mid
     return (lo + hi) / 2.0
 
-def get_p2_selection_from_state():
-    """Return (platform, status, entry, target, share, entry_options, target_options) with safe defaults."""
+def _reset_if_changed():
+    """
+    If Platform/Status changes, clear Entry/Target. If Entry changes, clear Target.
+    Track last seen values in session.
+    """
     ss = st.session_state
-    platform = ss.get("p2_platform", "WEB")
-    status   = ss.get("p2_status", "LEAD")
+    last_ps = ss.get("p2__last_ps")
+    cur_ps = (ss.get("p2_platform"), ss.get("p2_status"))
+    if last_ps != cur_ps:
+        ss["p2_entry"] = PLACEHOLDER
+        ss["p2_target"] = PLACEHOLDER
+        ss["p2__last_ps"] = cur_ps
 
-    entry_options = sorted(P2.query("Platform == @platform and Status == @status")["Entry"].unique().tolist()) or ["Payment"]
-    entry = ss.get("p2_entry", None)
-    if entry not in entry_options:
-        entry = entry_options[0]
-
-    target_options = sorted(P2.query("Platform == @platform and Status == @status and Entry == @entry")["Target"].unique().tolist()) or ["Subscription purchase"]
-    target = ss.get("p2_target", None)
-    if target not in target_options:
-        target = target_options[0]
-
-    if entry in ("Home", "Main"):
-        share = float(ss.get("p2_share", 1.0))
-    else:
-        share = 1.0
-
-    return platform, status, entry, target, share, entry_options, target_options
+    last_entry = ss.get("p2__last_entry")
+    cur_entry = ss.get("p2_entry")
+    if last_entry != cur_entry:
+        ss["p2_target"] = PLACEHOLDER
+        ss["p2__last_entry"] = cur_entry
 
 # -----------------------------
-# Sidebar: menu + settings toggle (shared for both products)
+# Sidebar: menu + settings toggle
+#   - Product 1 uses the shared Settings block
+#   - Product 2 now has all inputs ON PAGE (no settings needed)
 # -----------------------------
 def _toggle_sidebar_settings():
-    st.session_state.sidebar_settings_open = not st.session_state.get("sidebar_settings_open", False)
+    st.session_state.sidebar_settings_open = not st.session_state.get("sidebar_settings_open", True)
 
 with st.sidebar:
     st.markdown("### 🧭 Products")
@@ -400,7 +400,7 @@ with st.sidebar:
     st.divider()
     st.button("⚙️ Settings", on_click=_toggle_sidebar_settings, key="toggle_settings_btn")
 
-    if st.session_state.get("sidebar_settings_open", False):
+    if st.session_state.get("sidebar_settings_open", True):
         with st.container():
             st.markdown("#### Settings")
             st.caption(f"Active: **{product}**")
@@ -415,25 +415,8 @@ with st.sidebar:
                 )
                 st.slider("Weight: Hypothesis", 1, 5, 2, 1, key="p1_hyp_w")
                 st.slider("Weight: Description", 1, 3, 1, 1, key="p1_desc_w")
-
-            else:  # Product 2 settings
-                p, s, e, t, sh, entry_opts, target_opts = get_p2_selection_from_state()
-
-                st.selectbox("Platform", ["WEB", "APP"], index=["WEB","APP"].index(p), key="p2_platform")
-                st.selectbox("Subscription status", ["LEAD", "PAYING"], index=["LEAD","PAYING"].index(s), key="p2_status")
-
-                p, s, e, t, sh, entry_opts, target_opts = get_p2_selection_from_state()
-                st.selectbox("Entry point", entry_opts, index=entry_opts.index(e), key="p2_entry")
-
-                p, s, e, t, sh, entry_opts, target_opts = get_p2_selection_from_state()
-                st.selectbox("Target", target_opts, index=target_opts.index(t), key="p2_target")
-
-                p, s, e, t, sh, _, _ = get_p2_selection_from_state()
-                if e in ("Home", "Main"):
-                    st.slider("Share of traffic affected (Home/Main only)", 0.1, 1.0, float(sh), 0.05, key="p2_share")
-                else:
-                    st.session_state["p2_share"] = 1.0
-
+            else:
+                st.info("All parameters for **Statistical Evaluation** are set on the page.")
             st.markdown("</div>", unsafe_allow_html=True)
 
 # -----------------------------
@@ -466,12 +449,6 @@ def render_product_1():
     if "p1_df_scores" in st.session_state and not st.session_state.p1_df_scores.empty:
         df_scores = st.session_state.p1_df_scores
         recommendation = st.session_state.p1_recommendation
-
-        # st.subheader("Scores")
-        # st.dataframe(
-        #     df_scores.style.format({"Share": "{:.0%}", "Weighted Score": "{:.0f}"}),
-        #     use_container_width=True
-        # )
 
         st.markdown("### Diagram — Absolute weight")
         chart_df = df_scores[["Feature Type", "Weighted Score", "Share"]].copy()
@@ -579,25 +556,86 @@ def render_product_1():
         st.info("Enter a hypothesis and a feature description, then click **Classify**.")
 
 # -----------------------------
-# Product 2 UI
+# Product 2 UI — all inputs ON PAGE
 # -----------------------------
 def render_product_2():
-    # read the live selection (works even if settings panel is closed)
-    platform, status, entry, target, share, _, _ = get_p2_selection_from_state()
-
     st.header("📊 Statistical Evaluation")
 
-    # lookup selected row
-    row = P2.query(
-        "Platform==@platform and Status==@status and Entry==@entry and Target==@target"
-    ).iloc[0]
+    # Initialize placeholders once
+    for key in ("p2_platform", "p2_status", "p2_entry", "p2_target"):
+        if key not in st.session_state:
+            st.session_state[key] = PLACEHOLDER
+    if "p2_share" not in st.session_state:
+        st.session_state["p2_share"] = 1.0
 
-    # prefer row-specific K/L
+    # --- Top-level selectors (with placeholders) ---
+    cols = st.columns(2)
+    with cols[0]:
+        platform = st.selectbox("Platform", _opt_with_placeholder(["WEB", "APP"]),
+                                key="p2_platform", index=0, placeholder="Pick platform")
+    with cols[1]:
+        status = st.selectbox("Subscription status", _opt_with_placeholder(["LEAD", "PAYING"]),
+                              key="p2_status", index=0, placeholder="Pick status")
+
+    _reset_if_changed()  # reset Entry/Target if top-level changed
+
+    platform_v = _read_or_none(platform)
+    status_v   = _read_or_none(status)
+
+    # Entry options depend on platform+status
+    if platform_v and status_v:
+        entry_opts = sorted(P2.query("Platform == @platform_v and Status == @status_v")["Entry"].unique().tolist())
+    else:
+        entry_opts = []
+
+    entry_ui = st.selectbox(
+        "Entry point",
+        _opt_with_placeholder(entry_opts) if entry_opts else [PLACEHOLDER],
+        key="p2_entry",
+        index=0 if (st.session_state["p2_entry"] == PLACEHOLDER or st.session_state["p2_entry"] not in entry_opts) else _opt_with_placeholder(entry_opts).index(st.session_state["p2_entry"]),
+        placeholder="Pick entry"
+    )
+
+    _reset_if_changed()  # reset Target if Entry changed
+
+    entry_v = _read_or_none(entry_ui)
+
+    # Target options depend on full triple
+    if platform_v and status_v and entry_v:
+        target_opts = sorted(P2.query("Platform == @platform_v and Status == @status_v and Entry == @entry_v")["Target"].unique().tolist())
+    else:
+        target_opts = []
+
+    target_ui = st.selectbox(
+        "Target",
+        _opt_with_placeholder(target_opts) if target_opts else [PLACEHOLDER],
+        key="p2_target",
+        index=0 if (st.session_state["p2_target"] == PLACEHOLDER or st.session_state["p2_target"] not in target_opts) else _opt_with_placeholder(target_opts).index(st.session_state["p2_target"]),
+        placeholder="Pick target"
+    )
+    target_v = _read_or_none(target_ui)
+
+    # Share only for Home/Main
+    if entry_v in ("Home", "Main"):
+        st.slider("Share of traffic affected (Home/Main only)", 0.1, 1.0, float(st.session_state["p2_share"]), 0.05, key="p2_share")
+    else:
+        st.session_state["p2_share"] = 1.0
+
+    # If any selection missing -> show guidance, stop
+    if not all([platform_v, status_v, entry_v, target_v]):
+        st.info("Choose parameters above: **Platform, Subscription status, Entry point, Target**.")
+        return
+
+    # Lookup selected row & constants
+    row = P2.query(
+        "Platform==@platform_v and Status==@status_v and Entry==@entry_v and Target==@target_v"
+    ).iloc[0]
     k2 = float(row["LTV12_row"]) if not pd.isna(row["LTV12_row"]) else LTV_12
     l2 = float(row["AnnualCoef_row"]) if not pd.isna(row["AnnualCoef_row"]) else ANNUAL_COEF
-    recurring = (target.strip().lower() == "subscription purchase recurring")
+    recurring = (target_v.strip().lower() == "subscription purchase recurring")
+    share = float(st.session_state["p2_share"])
 
-    # Highlighted Mixpanel callout
+    # Mixpanel callout
     st.markdown(
         f"""
         <div class="mixpanel-callout">
@@ -609,32 +647,28 @@ def render_product_2():
         unsafe_allow_html=True,
     )
 
-    # user metrics
-    cols = st.columns(2)
-    with cols[0]:
+    # User metrics
+    cols2 = st.columns(2)
+    with cols2[0]:
         monthly_traffic = st.number_input("Insert monthly traffic", min_value=0, step=100, value=0, key="p2_monthly")
-    with cols[1]:
+    with cols2[1]:
         cr_percent = st.number_input("Insert CR (%)", min_value=0.0, max_value=100.0, step=0.01, value=0.0, key="p2_cr")
     J = max(min(cr_percent / 100.0, 0.9999), 0.000001)
 
     # Calculate
     if st.button("Calculate", type="primary", key="p2_calc"):
-        # 1) Calibrate 5th row (base days = 30)
+        # Calibrate 5th row: base Days = 30
         u5 = _find_uplift_for_30_days(monthly_traffic, share, J)
 
-        # 2) Choose start uplift for row 1:
-        #    - if u5 > 1% -> row1 = 1%
-        #    - else       -> row1 = 0% (compute with tiny epsilon to avoid div/0)
+        # Row 1 rule: if u5>1% => row1=1%; else row1=0
         start_display = 0.01 if u5 > 0.01 else 0.0
-        # step so that row5 hits u5 exactly
-        step = (u5 - start_display) / 4 if u5 > start_display else 0.001
-        # 10 rows, constant step; display value is as above, but numeric calc uses epsilon when 0
+        step = (u5 - start_display) / 4 if u5 > start_display else 0.001  # constant step to hit row5=u5
         uplifts_display = [start_display + i * step for i in range(10)]
         EPS = 1e-6
 
         data = []
         for u_disp in uplifts_display:
-            u_eff = max(u_disp, EPS)  # avoid division by zero when uplift is 0%
+            u_eff = max(u_disp, EPS)  # avoid divide-by-zero in sample size
             n = _sample_size(J, u_eff, Z_ALPHA_2, Z_BETA)
             days_display, base_days = _days_from_n(n, monthly_traffic, share, recurring=recurring)
             income = _annual_income_uplift(monthly_traffic, share, J, u_eff, K=k2, L=l2)
@@ -646,7 +680,7 @@ def render_product_2():
             })
 
         df = pd.DataFrame(data)
-        # formatting for display
+        # Format for display
         df_display = df.copy()
         df_display["Uplift %"] = df_display["Uplift %"].map(lambda x: f"{x:.2f}%")
         df_display["Sample size"] = df_display["Sample size"].map(lambda x: f"{x:,}")
@@ -657,7 +691,7 @@ def render_product_2():
         st.dataframe(df_display, use_container_width=True, hide_index=True)
 
 # -----------------------------
-# Router (menu stays in sidebar)
+# Router
 # -----------------------------
 if product == "A/B Test Prioiritization":
     render_product_1()
